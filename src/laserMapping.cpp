@@ -37,6 +37,7 @@
 #include <math.h>
 #include <thread>
 #include <fstream>
+#include <iomanip>
 #include <csignal>
 #include <unistd.h>
 #include <Python.h>
@@ -135,8 +136,30 @@ nav_msgs::Odometry odomAftMapped;
 geometry_msgs::Quaternion geoQuat;
 geometry_msgs::PoseStamped msg_body_pose;
 
+std::vector<nav_msgs::Odometry> vOdomAftMapped;
+
+//std::set<nav_msgs::Odometry> vOdomAftMapped;
+
 shared_ptr<Preprocess> p_pre(new Preprocess());
 shared_ptr<ImuProcess> p_imu(new ImuProcess());
+
+void SaveTrajectory(const std::string& fileName) {
+    cout << endl << "Saving trajectory to " << fileName << endl;
+
+    // TODO: Probably need sorting
+
+    std::ofstream f;
+    f.open(fileName.c_str());
+    f << fixed;
+
+    for (auto odom: vOdomAftMapped) {
+        f << std::setprecision(6) << odom.header.stamp.toSec() << setprecision(7) << " " << odom.pose.pose.position.x
+        << " " << odom.pose.pose.position.y << " " << odom.pose.pose.position.z << " " << odom.pose.pose.orientation.x
+        << " " << odom.pose.pose.orientation.y << " " << odom.pose.pose.orientation.z << " "
+        << odom.pose.pose.orientation.w << std::endl;
+    }
+    f.close();
+}
 
 void SigHandle(int sig)
 {
@@ -147,9 +170,11 @@ void SigHandle(int sig)
 
 inline void dump_lio_state_to_log(FILE *fp)  
 {
-    V3D rot_ang(Log(state_point.rot.toRotationMatrix()));
+//    V3D rot_ang(Log(state_point.rot.toRotationMatrix()));
     fprintf(fp, "%lf ", Measures.lidar_beg_time - first_lidar_time);
-    fprintf(fp, "%lf %lf %lf ", rot_ang(0), rot_ang(1), rot_ang(2));                   // Angle
+//    fprintf(fp, "%lf %lf %lf ", rot_ang(0), rot_ang(1), rot_ang(2));                   // Angle
+    fprintf(fp, "%lf %lf %lf %lf ", state_point.rot.x(), state_point.rot.y(),
+            state_point.rot.z(), state_point.rot.w()); // Quaternion
     fprintf(fp, "%lf %lf %lf ", state_point.pos(0), state_point.pos(1), state_point.pos(2)); // Pos  
     fprintf(fp, "%lf %lf %lf ", 0.0, 0.0, 0.0);                                        // omega  
     fprintf(fp, "%lf %lf %lf ", state_point.vel(0), state_point.vel(1), state_point.vel(2)); // Vel  
@@ -585,6 +610,7 @@ void publish_odometry(const ros::Publisher & pubOdomAftMapped)
     odomAftMapped.child_frame_id = "body";
     odomAftMapped.header.stamp = ros::Time().fromSec(lidar_end_time);// ros::Time().fromSec(lidar_end_time);
     set_posestamp(odomAftMapped.pose);
+    vOdomAftMapped.emplace_back(odomAftMapped);
     pubOdomAftMapped.publish(odomAftMapped);
     auto P = kf.get_P();
     for (int i = 0; i < 6; i ++)
@@ -597,7 +623,8 @@ void publish_odometry(const ros::Publisher & pubOdomAftMapped)
         odomAftMapped.pose.covariance[i*6 + 4] = P(k, 1);
         odomAftMapped.pose.covariance[i*6 + 5] = P(k, 2);
     }
-
+//    vOdomAftMapped.insert(odomAftMapped);
+    // TODO: Here we publish poses into a file
     static tf::TransformBroadcaster br;
     tf::Transform                   transform;
     tf::Quaternion                  q;
@@ -627,6 +654,10 @@ void publish_path(const ros::Publisher pubPath)
         pubPath.publish(path);
     }
 }
+
+//void getAllOdometryMsgs() {
+//
+//}
 
 void h_share_model(state_ikfom &s, esekfom::dyn_share_datastruct<double> &ekfom_data)
 {
@@ -786,7 +817,7 @@ int main(int argc, char** argv)
     cout<<"p_pre->lidar_type "<<p_pre->lidar_type<<endl;
     
     path.header.stamp    = ros::Time::now();
-    path.header.frame_id ="camera_init";
+    path.header.frame_id = "camera_init";
 
     /*** variables definition ***/
     int effect_feat_num = 0, frame_num = 0;
@@ -835,6 +866,7 @@ int main(int argc, char** argv)
     ros::Subscriber sub_pcl = p_pre->lidar_type == AVIA ? \
         nh.subscribe(lid_topic, 200000, livox_pcl_cbk) : \
         nh.subscribe(lid_topic, 200000, standard_pcl_cbk);
+//    ros::Subscriber sub_pcl = nh.subscribe(lid_topic, 200000, standard_pcl_cbk);
     ros::Subscriber sub_imu = nh.subscribe(imu_topic, 200000, imu_cbk);
     ros::Publisher pubLaserCloudFull = nh.advertise<sensor_msgs::PointCloud2>
             ("/cloud_registered", 100000);
@@ -1040,6 +1072,8 @@ int main(int argc, char** argv)
         }
         fclose(fp2);
     }
+
+    SaveTrajectory("/home/wfram/catkin_ws_lvio_sber/src/FAST_LIO/FrameTrajectory.txt");
 
     return 0;
 }
