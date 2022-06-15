@@ -6,23 +6,23 @@
 Preprocess::Preprocess()
   :feature_enabled(0), lidar_type(AVIA), blind(0.01), point_filter_num(1)
 {
-  inf_bound = 10;
+  inf_bound = 10; // TODO
   N_SCANS   = 6;
   SCAN_RATE = 10;
-  group_size = 8;
-  disA = 0.01;
-  disA = 0.1; // B?
-  p2l_ratio = 225;
-  limit_maxmid =6.25;
-  limit_midmin =6.25;
-  limit_maxmin = 3.24;
-  jump_up_limit = 170.0;
-  jump_down_limit = 8.0;
-  cos160 = 160.0;
-  edgea = 2;
-  edgeb = 0.1;
-  smallp_intersect = 172.5;
-  smallp_ratio = 1.2;
+  group_size = 8; // TODO
+  disA = 0.01; // TODO
+  disA = 0.1; // B? // TODO
+  p2l_ratio = 225; // TODO
+  limit_maxmid =6.25; // TODO
+  limit_midmin =6.25; // TODO
+  limit_maxmin = 3.24; // TODO
+  jump_up_limit = 170.0; // TODO
+  jump_down_limit = 8.0; // TODO
+  cos160 = 160.0; // TODO
+  edgea = 2; // TODO
+  edgeb = 0.1; // TODO
+  smallp_intersect = 172.5; // TODO
+  smallp_ratio = 1.2; // TODO
   given_offset_time = false;
 
   jump_up_limit = cos(jump_up_limit/180*M_PI);
@@ -464,24 +464,38 @@ void Preprocess::bpearl_handler(const sensor_msgs::PointCloud2::ConstPtr &msg)
     pcl::PointCloud<pcl::PointXYZI> pl_orig;
     pcl::fromROSMsg(*msg, pl_orig);
     std::vector<int> indices;
+    // long double offset = (1 / SCAN_RATE) / pl_orig.points.size(); // TODO: Check its accuracy!
+    long double offset = 0.001736;
 
-    pcl::removeNaNFromPointCloud(pl_orig, pl_orig, indices);
+//    pcl::removeNaNFromPointCloud(pl_orig, pl_orig, indices);
 //    removeClosedPointCloud(laserCloudIn, laserCloudIn, MINIMUM_RANGE); // Filter point cloud
-
 
     int plsize = pl_orig.points.size();
     if (plsize == 0) return;
     pl_surf.reserve(plsize);
 
+    double omega_l = 0.361 * SCAN_RATE; // scan angular velocity TODO
+    std::vector<bool> is_first(N_SCANS, true);
+    std::vector<double> yaw_fp(N_SCANS, 0.0); // yaw of first scan point
+    std::vector<float> yaw_last(N_SCANS, 0.0); // yaw of last scan point
+    std::vector<float> time_last(N_SCANS, 0.0); // last offset time
+
     given_offset_time = false;
     double yaw_first = atan2(pl_orig.points[0].y, pl_orig.points[0].x) * 57.29578; // Azimuth for the first point
-    double yaw_end = (atan2(pl_orig.points[plsize - 1].y,
-                           pl_orig.points[plsize - 1].x) + 2 * M_PI) * 57.29578; // Azimuth for the last point
+    double yaw_end = yaw_first; // Azimuth for the last point
+    int layer_first = 0;
+    for (uint i = plsize - 1; i > 0; i--) // Assumed that a ring numeration starts from 0 ending up 31
+    {
+        if ((i % N_SCANS) == layer_first)
+        {
+            yaw_end = atan2(pl_orig.points[i].y, pl_orig.points[i].x) * 57.29578;
+            break;
+        }
+    }
 
     for (int i = 0; i < plsize; i++)
     {
         PointType added_pt;
-        // cout<<"!!!!!!"<<i<<" "<<plsize<<endl;
 
         added_pt.normal_x = 0;
         added_pt.normal_y = 0;
@@ -490,7 +504,35 @@ void Preprocess::bpearl_handler(const sensor_msgs::PointCloud2::ConstPtr &msg)
         added_pt.y = pl_orig.points[i].y;
         added_pt.z = pl_orig.points[i].z;
         added_pt.intensity = pl_orig.points[i].intensity;
-//        added_pt.curvature = pl_orig.points[i].time * time_unit_scale;  // curvature unit: ms // cout<<added_pt.curvature<<endl;
+        added_pt.curvature = i * offset;
+
+        // int layer = i % N_SCANS;
+        // double yaw_angle = atan2(added_pt.y, added_pt.x) * 57.2957;
+
+        // if (is_first[layer])
+        // {
+        //     yaw_fp[layer] = yaw_angle;
+        //     is_first[layer] = false;
+        //     added_pt.curvature = 0.0;
+        //     yaw_last[layer] = yaw_angle;
+        //     time_last[layer] = added_pt.curvature;
+        //     continue;
+        // }
+
+        // // Compute offset time
+        // if (yaw_angle <= yaw_fp[layer])
+        // {
+        //     added_pt.curvature = (yaw_fp[layer] - yaw_angle) / omega_l;
+        // }
+        // else
+        // {
+        //     added_pt.curvature = (yaw_fp[layer] - yaw_angle + 360.0) / omega_l;
+        // }
+
+        // if (added_pt.curvature < time_last[layer])  added_pt.curvature += 360.0 / omega_l;
+
+        // yaw_last[layer] = yaw_angle;
+        // time_last[layer] = added_pt.curvature;
 
         if (i % point_filter_num == 0)
         {

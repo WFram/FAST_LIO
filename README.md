@@ -41,7 +41,7 @@
 
 **Related papers**: 
 
-[FAST-LIO2: Fast Direct LiDAR-inertial Odometry](doc/Fast_LIO_2.pdf)
+[FAST-LIO2: Fast Direct LiDAR-inertial Odometry](doc/FAST-LIO2: Fast Direct LiDAR-inertial Odometry.pdf)
 
 [FAST-LIO: A Fast, Robust LiDAR-inertial Odometry Package by Tightly-Coupled Iterated Kalman Filter](https://arxiv.org/abs/2010.08196)
 

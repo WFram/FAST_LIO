@@ -17,7 +17,7 @@ using namespace Eigen;
 #define USE_IKFOM
 
 #define PI_M (3.14159265358)
-#define G_m_s2 (9.81)         // Gravaty const in GuangDong/China
+#define G_m_s2 (9.81)         // Gravity const in GuangDong/China
 #define DIM_STATE (18)        // Dimension of states (Let Dim(SO(3)) = 3)
 #define DIM_PROC_N (12)       // Dimension of process noise (Let Dim(SO(3)) = 3)
 #define CUBE_LEN  (6.0)
@@ -37,6 +37,8 @@ typedef fast_lio::Pose6D Pose6D;
 typedef pcl::PointXYZINormal PointType;
 typedef pcl::PointCloud<PointType> PointCloudXYZI;
 typedef vector<PointType, Eigen::aligned_allocator<PointType>>  PointVector;
+typedef Vector2d V2D;
+typedef Matrix2d M2D;
 typedef Vector3d V3D;
 typedef Matrix3d M3D;
 typedef Vector3f V3F;

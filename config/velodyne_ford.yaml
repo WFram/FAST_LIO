@@ -1,6 +1,6 @@
 common:
-    lid_topic:  "/points_raw"
-    imu_topic:  "/imu_raw"
+    lid_topic:  "/lidar_red_pointcloud"
+    imu_topic:  "/imu"
     time_sync_en: false         # ONLY turn on when external time synchronization is really not possible
     
 preprocess:
@@ -18,10 +18,10 @@ mapping:
     fov_degree:    180
     det_range:     100.0
     extrinsic_est_en:  false      # true: enable the online estimation of IMU-LiDAR extrinsic,
-    extrinsic_T: [ 0, 0, 0.28]
-    extrinsic_R: [ 1, 0, 0, 
-                   0, 1, 0, 
-                   0, 0, 1]
+    extrinsic_T: [ 1.23228, -0.39567, -1.00382]
+    extrinsic_R: [ -0.00712, 0.99995, -0.00742,
+                   0.99997, 0.00714, 0.00245,
+                   0.00250, -0.00741, -0.99997 ]
 
 publish:
     path_en:  false
