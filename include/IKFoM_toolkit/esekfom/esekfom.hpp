@@ -1682,13 +1682,19 @@ namespace esekfom {
                 Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> R_ = dyn_share.R;
                 Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> R_inv_ = dyn_share.R_inv;
 
+                Eigen::Matrix<scalar_type, 12, 12> HTH;
+                Eigen::Matrix<scalar_type, n, n> HTHn;
+                double th_deg = 150;
+
+                Matrix<scalar_type, n, 1> dx_;
+
                 if (n > dof_Measurement) {
                     //#ifdef USE_sparse
                     //Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> K_temp = h_x * P_ * h_x.transpose();
                     //spMt R_temp = h_v * R_ * h_v.transpose();
                     //K_temp += R_temp;
-                    Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> h_x_cur = Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic>::Zero(
-                            dof_Measurement, n);
+                    Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> h_x_cur =
+                            Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic>::Zero(dof_Measurement, n);
                     h_x_cur.topLeftCorner(dof_Measurement, 12) = h_x_;
                     /*
                     h_x_cur.col(0) = h_x_.col(0);
@@ -1705,15 +1711,67 @@ namespace esekfom {
                     h_x_cur.col(11) = h_x_.col(11);
                     */
 
-//                    K_ = P_ * h_x_cur.transpose() *
-//                            (h_x_cur * P_ * h_x_cur.transpose() / R + Eigen::Matrix<double, Dynamic, Dynamic>::Identity(dof_Measurement,dof_Measurement)).inverse() / R;
-                    K_ = P_ * h_x_cur.transpose() * (h_x_cur * P_ * h_x_cur.transpose() + R_).inverse();
+                    K_ = P_ * h_x_cur.transpose() *
+                            (h_x_cur * P_ * h_x_cur.transpose() / R + Eigen::Matrix<double, Dynamic, Dynamic>::Identity(dof_Measurement,dof_Measurement)).inverse() / R;
+//                    K_ = P_ * h_x_cur.transpose() * (h_x_cur * P_ * h_x_cur.transpose() + R_).inverse();
                     // TODO: Here we need for some changes to implement robust loss
                     K_h = K_ * dyn_share.h;
                     K_x = K_ * h_x_cur;
                     //#else
                     //	K_= P_ * h_x.transpose() * (h_x * P_ * h_x.transpose() + h_v * R * h_v.transpose()).inverse();
                     //#endif
+
+                    // Degeneracy handling
+//                    Eigen::Matrix<scalar_type, n, n> HTHdeg = h_x_cur.transpose() * h_x_cur;
+//                    Eigen::EigenSolver<Eigen::Matrix<scalar_type, n, n>> es(HTHdeg);
+//                    Eigen::Matrix<scalar_type, n, n> eigen_vectors =
+//                            es.eigenvectors().real().template block<n, n>(0, 0);
+//                    Eigen::Matrix<scalar_type, 1, n> eigen_values = es.eigenvalues().real().head(n);
+//                    Eigen::Matrix<scalar_type, n, n> asc_eigen_vectors;
+//                    Eigen::Matrix<scalar_type, n, n> sparse_asc_eigen_vectors;
+//                    for (int i = 0; i < eigen_values.size(); i++) {
+//                        asc_eigen_vectors.template block<1, n>(i, 0) =
+//                                eigen_vectors.template block<1, n>(eigen_values.size() - i - 1, 0);
+//                        sparse_asc_eigen_vectors.template block<1, n>(i, 0) =
+//                                eigen_vectors.template block<1, n>(eigen_values.size() - i - 1, 0);
+//                        if (eigen_values[i] < th_deg)
+//                            sparse_asc_eigen_vectors.template block<1, n>(i, 0) =
+//                                    Eigen::Matrix<scalar_type, 1, n>::Zero();
+//                    }
+//
+//                    Eigen::Matrix<scalar_type, n, n> Vf = asc_eigen_vectors.transpose();
+//                    Eigen::Matrix<scalar_type, n, n> Vp = sparse_asc_eigen_vectors.transpose();
+//
+//                dx_ = K_h + (K_x - Matrix<scalar_type, n, n>::Identity()) * dx_new;
+////                    dx_ = Vf.inverse() * Vp * (K_h + (K_x - Matrix<scalar_type, n, n>::Identity()) * dx_new);
+//                Matrix<scalar_type, n, 1> dx_test = Vf.inverse() * Vp * dx_;
+//
+//                    for (int i = 0; i < n; i++) {
+//                        for (int j = 0; j < n; j++)
+//                            printf("Vf: %f ", Vf(i, j));
+//                    }
+//                printf("\n");
+//
+//                for (int i = 0; i < n; i++) {
+//                    for (int j = 0; j < n; j++)
+//                        printf("Vp: %f ", Vp(i, j));
+//                }
+//                printf("\n");
+
+//                    for (int k = 0; k < eigen_values.size(); k++) {
+//                        printf("Value: %f ", eigen_values[k]);
+//                    }
+//                printf("\n\n");
+//
+//                    for (int i = 0; i < n; i++) {
+//                        printf("dx_: %f ", dx_[i]);
+//                    }
+//                printf("\n\n");
+//
+//                for (int i = 0; i < n; i++) {
+//                    printf("dx_test: %f ", dx_test[i]);
+//                }
+//                printf("\n\n");
                 } else {
 #ifdef USE_sparse
                     //Eigen::Matrix<scalar_type, n, n> b = Eigen::Matrix<scalar_type, n, n>::Identity();
@@ -1750,10 +1808,14 @@ namespace esekfom {
                     K_ = P_temp.inverse() * h_x.transpose() * R_in;
                     */
 #else
-//                    cov P_temp = (P_ / R).inverse();
-                    //Eigen::Matrix<scalar_type, 12, Eigen::Dynamic> h_T = h_x_.transpose();
-//                    Eigen::Matrix<scalar_type, 12, 12> HTH = h_x_.transpose() * h_x_;
-//                    P_temp.template block<12, 12>(0, 0) += HTH;
+                    cov P_temp = (P_ / R).inverse();
+//                    Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> h_x_cur = Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic>::Zero(
+//                            dof_Measurement, n);
+//                    h_x_cur.topLeftCorner(dof_Measurement, 12) = h_x_;
+//                    Eigen::Matrix<scalar_type, 12, Eigen::Dynamic> h_T = h_x_.transpose();
+                    HTH = h_x_.transpose() * h_x_;
+//                    HTHn = h_x_cur.transpose() * h_x_cur;
+                    P_temp.template block<12, 12>(0, 0) += HTH;
                     /*
                     Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> h_x_cur = Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic>::Zero(dof_Measurement, n);
                     //std::cout << "line 1767" << std::endl;
@@ -1770,33 +1832,62 @@ namespace esekfom {
                     h_x_cur.col(10) = h_x_.col(10);
                     h_x_cur.col(11) = h_x_.col(11);
                     */
-                    Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> h_x_cur =
-                            Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic>::Zero(dof_Measurement, n);
-                    h_x_cur.topLeftCorner(dof_Measurement, 12) = h_x_;
-//                    cov P_inv = P_temp.inverse();
-                    K_ = (h_x_cur.transpose() * R_inv_ * h_x_cur + P_.inverse()).inverse() * h_x_cur.transpose() * R_inv_;
+//                    Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> h_x_cur =
+//                            Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic>::Zero(dof_Measurement, n);
+//                    h_x_cur.topLeftCorner(dof_Measurement, 12) = h_x_;
+                    cov P_inv = P_temp.inverse();
+//                    K_ = (h_x_cur.transpose() * R_inv_ * h_x_cur + P_.inverse()).inverse() * h_x_cur.transpose() * R_inv_;
                     //std::cout << "line 1781" << std::endl;
                     // TODO: Here we need for some changes to implement robust loss
-//                    K_ = P_inv.template block<n, 12>(0, 0) * h_x_.transpose();
-//                    K_h = P_inv.template block<n, 12>(0, 0) * h_x_.transpose() * dyn_share.h;
+                    K_ = P_inv.template block<n, 12>(0, 0) * h_x_.transpose();
+                    K_h = P_inv.template block<n, 12>(0, 0) * h_x_.transpose() * dyn_share.h;
                     //std::cout << "line 1780" << std::endl;
                     //cov HTH_cur = cov::Zero();
                     //HTH_cur. template block<12, 12>(0, 0) = HTH;
                     K_x.setZero(); // = cov::Zero();
-                    K_x = K_ * h_x_cur;
-//                    K_x.template block<n, 12>(0, 0) = P_inv.template block<n, 12>(0, 0) * HTH;
+//                    K_x = K_ * h_x_cur;
+//                    K_h = K_ * dyn_share.h;
+                    K_x.template block<n, 12>(0, 0) = P_inv.template block<n, 12>(0, 0) * HTH;
                     //K_= (h_x_.transpose() * h_x_ + (P_/R).inverse()).inverse()*h_x_.transpose();
+
+                    // Degeneracy handling
+//                    Eigen::EigenSolver<Eigen::Matrix<scalar_type, 12, 12>> es(HTH);
+//                    Eigen::Matrix<scalar_type, 12, 12> eigen_vectors =
+//                            es.eigenvectors().real().template block<12, 12>(0, 0);
+//                    Eigen::Matrix<scalar_type, 1, 12> eigen_values = es.eigenvalues().real().head(12);
+//                    Eigen::Matrix<scalar_type, 12, 12> asc_eigen_vectors;
+//                    Eigen::Matrix<scalar_type, 12, 12> sparse_asc_eigen_vectors;
+//                    for (int i = 0; i < eigen_values.size(); i++) {
+//                        asc_eigen_vectors.template block<12, 1>(0, i) =
+//                                eigen_vectors.template block<12, 1>(0, eigen_values.size() - i - 1);
+//                        sparse_asc_eigen_vectors.template block<12, 1>(0, i) =
+//                                eigen_vectors.template block<12, 1>(0, eigen_values.size() - i - 1);
+//                        if (eigen_values[i] < th_deg)
+//                            sparse_asc_eigen_vectors.template block<12, 1>(0, i) =
+//                                    Eigen::Matrix<scalar_type, 12, 1>::Zero();
+//                    }
+//
+//                    Eigen::Matrix<scalar_type, 12, 12> Vf = asc_eigen_vectors.transpose();
+//                    Eigen::Matrix<scalar_type, 12, 12> Vp = sparse_asc_eigen_vectors.transpose();
+//
+//                    dx_ = Vf.inverse() * Vp * (K_h + (K_x - Matrix<scalar_type, n, n>::Identity()) * dx_new.template block<12, 1>(0, 0));
 #endif
                 }
 
                 // K_x = K_ * h_x_;
                 // dx_new is calculated with prior Jacobian (see the paper)
                 // TODO: There is a typo in the paper
-//                Matrix<scalar_type, n, 1> dx_ = K_h + (K_x - Matrix<scalar_type, n, n>::Identity()) * dx_new;
-                Matrix<scalar_type, n, 1> dx_ =
-                        K_ * (dyn_share.h + h_x_ * dx_new.template block<12, 1>(0, 0)) - Matrix<scalar_type, n, n>::Identity() * dx_new;
+//                Matrix<scalar_type, 12, 1> dx_ =
+//                        Vf.inverse() * Vp * K_h.template block<12, 1>(0, 0) +
+//                                (K_x.template block<12, 12>(0, 0) - Matrix<scalar_type, 12, 12>::Identity()) *
+//                                dx_new.template block<12, 1>(0, 0);
+//                Matrix<scalar_type, n, 1> dx_ =
+//                        Vf.inverse() * Vp * (K_h + (K_x - Matrix<scalar_type, n, n>::Identity()) * dx_new);
+                dx_ = K_h + (K_x - Matrix<scalar_type, n, n>::Identity()) * dx_new;
 //                Matrix<scalar_type, n, 1> dx_ =
 //                        K_ * (dyn_share.h + h_x_ * dx_new.template block<12, 1>(0, 0)) - Matrix<scalar_type, n, n>::Identity() * dx_new;
+
+
                 state x_before = x_;
                 x_.boxplus(dx_);
                 dyn_share.converge = true;

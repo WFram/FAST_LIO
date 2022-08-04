@@ -1,0 +1,31 @@
+<launch>
+    <!-- Launch file for velodyne16 VLP-16 LiDAR -->
+
+    <arg name="rviz" default="true" />
+    <arg name="calibration" default="$(find fast_lio)/config/velodyne_intrinsic.yaml" />
+    <arg name="manager" default="velodyne_nodelet_manager" />
+    <arg name="max_range" default="130.0" />
+    <arg name="min_range" default="3.0" />
+    <arg name="model" default="32E" />
+
+    <group if="$(arg rviz)">
+        <node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz" args="-d $(find fast_lio)/rviz_cfg/loam_livox.rviz" />
+    </group>
+
+    <!-- Start nodelet manager -->
+    <node pkg="nodelet" type="nodelet" name="$(arg manager)" args="manager" />
+
+    <node pkg="nodelet" type="nodelet" name="velodyne_convert"
+          args="load velodyne_pointcloud/TransformNodelet $(arg manager)">
+        <param name="calibration" value="$(arg calibration)"/>
+        <param name="max_range" value="$(arg max_range)"/>
+        <param name="min_range" value="$(arg min_range)"/>
+        <param name="fixed_frame" value="lidar_red"/>
+        <param name="target_frame" value="lidar_red"/>
+        <!--      <param name="frame_id" value="lidar_red"/>-->
+        <param name="model" value="$(arg model)"/>
+        <remap from="velodyne_packets" to="lidar_red_scan"/>
+        <remap from="velodyne_points" to="lidar_red_pointcloud"/>
+    </node>
+
+</launch>

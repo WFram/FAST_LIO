@@ -54,6 +54,7 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/io/pcd_io.h>
 #include <sensor_msgs/PointCloud2.h>
+#include <sensor_msgs/Range.h>
 #include <tf/transform_datatypes.h>
 #include <tf/transform_broadcaster.h>
 #include <tf/transform_listener.h>
@@ -63,6 +64,8 @@
 #include <livox_ros_driver/CustomMsg.h>
 #include "preprocess.h"
 #include <ikd-Tree/ikd-Tree/ikd_Tree.h>
+#include <pcl/range_image/range_image.h>
+#include <pcl/visualization/range_image_visualizer.h>
 
 #define INIT_TIME           (0.1)
 #define LASER_POINT_COV     (0.001)
@@ -120,6 +123,9 @@ PointCloudXYZI::Ptr normvec(new PointCloudXYZI(100000, 1));
 PointCloudXYZI::Ptr laserCloudOri(new PointCloudXYZI(100000, 1));
 PointCloudXYZI::Ptr corr_normvect(new PointCloudXYZI(100000, 1));
 PointCloudXYZI::Ptr _featsArray;
+
+
+pcl::PointCloud<pcl::PointXYZ>::Ptr pcl_range(new pcl::PointCloud<pcl::PointXYZ>());
 
 pcl::VoxelGrid<PointType> downSizeFilterSurf;
 pcl::VoxelGrid<PointType> downSizeFilterMap;
@@ -256,7 +262,7 @@ inline void get_trajectory_ford_av(FILE *fp) {
 //    fprintf(fp, "%lf ", Measures.lidar_beg_time - first_lidar_time);
     fprintf(fp, "%lf ", Measures.lidar_end_time);
     fprintf(fp, "%lf %lf %lf ", state_map_pos.x(), state_map_pos.y(), state_map_pos.z());  // Pos
-    fprintf(fp, "%lf %lf %lf %lf ", state_map_rot.x(), state_map_rot.y(),
+    fprintf(fp, "%lf %lf %lf %lf", state_map_rot.x(), state_map_rot.y(),
             state_map_rot.z(), state_map_rot.w()); // Quaternion
     fprintf(fp, "\r\n");
     fflush(fp);
@@ -272,6 +278,11 @@ void pointBodyToWorld_ikfom(PointType const *const pi, PointType *const po, stat
     po->intensity = pi->intensity;
 }
 
+void point_for_range_image(PointType const *const pi, pcl::PointXYZ *const po) {
+    po->x = pi->x;
+    po->y = pi->y;
+    po->z = pi->z;
+}
 
 void pointBodyToWorld(PointType const *const pi, PointType *const po) {
     V3D p_body(pi->x, pi->y, pi->z);
@@ -383,6 +394,7 @@ void standard_pcl_cbk(const sensor_msgs::PointCloud2::ConstPtr &msg) {
 
     PointCloudXYZI::Ptr ptr(new PointCloudXYZI());
     p_pre->process(msg, ptr);
+    // TODO: Here should be MOS, as above the callback finishes its work. Also, take the current odometry here
     lidar_buffer.push_back(ptr);
     time_buffer.push_back(msg->header.stamp.toSec());
     last_timestamp_lidar = msg->header.stamp.toSec();
@@ -662,7 +674,7 @@ void set_posestamp_ford_av(T &out) {
 
 void provide_odometry() {
     odomImuMap.header.frame_id = "map";
-    odomImuMap.child_frame_id = "body";
+    odomImuMap.child_frame_id = "body_init";
     odomImuMap.header.stamp = ros::Time().fromSec(lidar_end_time);
     set_posestamp_ford_av(odomImuMap.pose);
     vOdomImuMap.emplace_back(odomImuMap);
@@ -733,9 +745,39 @@ void publish_path(const ros::Publisher pubPath) {
 //}
 
 double apply_robust_kernel(double err, double th) {
-    // Tukey
+//     Tukey
+//    double weight(1.0);
+//    (std::fabs(err) > th) ? weight = 0.0001 : weight = std::pow(1 - std::pow(err / th, 2), 2);
+//    return weight;
+
+//     Huber
+//    double weight(1.0);
+//    if (std::fabs(err) >= th)
+//        weight = th / std::fabs(err);
+//    return weight;
+
+    // Cauchy
     double weight(1.0);
-    (std::fabs(err) > th) ? weight = 0.0001 : weight = std::pow(1 - std::pow(err / th, 2), 2);
+    if (std::fabs(err) > th)
+        weight = 1 / (1 + std::pow(err / th, 2));
+    return weight;
+
+    // Welsch
+//    double weight(1.0);
+//    if (std::fabs(err) > th)
+//        weight = std::exp(-std::pow(err / th, 2));
+//    return weight;
+}
+
+double robustisize(double err, double th) {
+    // Huber
+    double weight = 1.0;
+    if (std::fabs(err) / th <= 1.0) {
+        weight = 1.0;
+    }
+    else {
+        weight = (2 * std::sqrt(std::fabs(err)) / std::sqrt(th) - 1.0) / std::fabs(err);
+    }
     return weight;
 }
 
@@ -815,14 +857,19 @@ void h_share_model(state_ikfom &s, esekfom::dyn_share_datastruct<double> &ekfom_
     match_time += omp_get_wtime() - match_start;
     double solve_start_ = omp_get_wtime();
 
-    /*** Computation of Measuremnt Jacobian matrix H and measurents vector ***/
+    /*** Computation of Measuremnt Jacobian matrix
+     * and measurents vector ***/
     ekfom_data.h_x = MatrixXd::Zero(effct_feat_num, 12); // 23
     ekfom_data.h.resize(effct_feat_num);
 
     double laser_point_cov(0.001);
     double laser_point_inf(1 / laser_point_cov);
-    ekfom_data.R = MatrixXd::Identity(effct_feat_num, effct_feat_num) * laser_point_cov;
-    ekfom_data.R_inv = MatrixXd::Identity(effct_feat_num, effct_feat_num) * laser_point_inf;
+//    ekfom_data.R = MatrixXd::Identity(effct_feat_num, effct_feat_num) * laser_point_cov;
+//    ekfom_data.R_inv = MatrixXd::Identity(effct_feat_num, effct_feat_num) * laser_point_inf;
+
+    FILE *ferror;
+    string error = root_dir + "/Log/error.csv";
+    ferror = fopen(error.c_str(), "w");
 
     for (int i = 0; i < effct_feat_num; i++) {
         const PointType &laser_p = laserCloudOri->points[i];
@@ -840,6 +887,15 @@ void h_share_model(state_ikfom &s, esekfom::dyn_share_datastruct<double> &ekfom_
         /*** calculate the Measuremnt Jacobian matrix H ***/
         V3D C(s.rot.conjugate() * norm_vec);
         V3D A(point_crossmat * C);
+
+        double th = 0.4;
+        double weight = apply_robust_kernel(-norm_p.intensity, th);
+//        double weight = robustisize(-norm_p.intensity, th);
+        double cov = laser_point_cov / weight;
+        double inf = weight / laser_point_cov;
+//        ekfom_data.R(i, i) = cov;
+//        ekfom_data.R_inv(i, i) = inf;
+
         if (extrinsic_est_en) {
             V3D B(point_be_crossmat * s.offset_R_L_I.conjugate() * C); //s.rot.conjugate()*norm_vec);
             ekfom_data.h_x.block<1, 12>(i, 0) << norm_p.x, norm_p.y, norm_p.z, VEC_FROM_ARRAY(A), VEC_FROM_ARRAY(
@@ -847,17 +903,16 @@ void h_share_model(state_ikfom &s, esekfom::dyn_share_datastruct<double> &ekfom_
         } else {
             ekfom_data.h_x.block<1, 12>(i, 0) << norm_p.x, norm_p.y, norm_p.z, VEC_FROM_ARRAY(
                     A), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
+//            ekfom_data.h_x.block<1, 12>(i, 0) << norm_p.x * weight, norm_p.y * weight, norm_p.z * weight, VEC_FROM_ARRAY(
+//                    A) * weight, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
         }
 
         /*** Measuremnt: distance to the closest surface/corner ***/
-        double th = 1.0;
-        double weight = apply_robust_kernel(-norm_p.intensity, th);
-        double cov = laser_point_cov / weight;
-        double inf = weight / laser_point_cov;
-        ekfom_data.R(i, i) = cov;
-        ekfom_data.R_inv(i, i) = inf;
-        ekfom_data.h(i) = -norm_p.intensity;
+//        ekfom_data.h(i) = -norm_p.intensity;
+        ekfom_data.h(i) = -norm_p.intensity * weight;
+        fprintf(ferror, "%0.3f\n", ekfom_data.h(i));
     }
+    fclose(ferror);
     solve_time += omp_get_wtime() - solve_start_;
 }
 
@@ -964,6 +1019,7 @@ int main(int argc, char **argv) {
                                                   boost::bind(&OdomFordAVSaver::ford_av_gt_cbk,
                                                               &odom_saver,
                                                               _1));
+    ros::Publisher range_image_pub = nh.advertise<sensor_msgs::Range>("/range_image", 100);
 
     /*** ROS subscribe initialization ***/
     ros::Subscriber sub_pcl = p_pre->lidar_type == AVIA ? \
@@ -990,7 +1046,8 @@ int main(int argc, char **argv) {
     while (status) {
         if (flg_exit) break;
         ros::spinOnce();
-        if (!got_transform) {
+
+        /*if (!got_transform) {
             tf::StampedTransform transform;
             transform.setIdentity();
             try {
@@ -1019,7 +1076,7 @@ int main(int argc, char **argv) {
                 ROS_ERROR("%s", ex.what());
                 ros::Duration(1.0).sleep();
             }
-        }
+        }*/
         if (sync_packages(Measures)) {
             if (flg_first_scan) {
                 first_lidar_time = Measures.lidar_beg_time;
@@ -1045,6 +1102,37 @@ int main(int argc, char **argv) {
                 ROS_WARN("No point, skip this scan!\n");
                 continue;
             }
+
+//            float angular_resolution = (float) (1.0f * (M_PI / 180.0f));
+//            float max_angle_width = (float) (360.0f * (M_PI / 180.0f));
+//            float max_angle_height = (float) (180.0f * (M_PI / 180.0f));
+//            Eigen::Affine3f sensor_pose = (Eigen::Affine3f) Eigen::Translation3f(0.0f, 0.0f, 0.0f);
+//            pcl::RangeImage::CoordinateFrame coordinate_frame = pcl::RangeImage::CAMERA_FRAME;
+//            float noise_level = 0.0;
+//            float min_range = 0.0f;
+//            int border_size = 1;
+//
+//            pcl_range->resize(feats_undistort->points.size());
+//            for (int k = 0; k < feats_undistort->points.size(); k++) {
+//                point_for_range_image(&(feats_undistort->points[k]), &(pcl_range->points[k]));
+//            }
+//
+//            pcl::RangeImage range_image;
+//            range_image.createFromPointCloud(*pcl_range, angular_resolution, max_angle_width, max_angle_height,
+//                                             sensor_pose, coordinate_frame, noise_level, min_range, border_size);
+//            std::cout << range_image << std::endl;
+
+//            sensor_msgs::Range range_msg;
+//            range_msg.header.stamp = ros::Time::now().toSec();
+//            range_msg.min_range = min_range;
+//            range_msg.field_of_view
+//            range_msg.range = range_image;
+//            range_image_pub.publish()
+
+//            pcl::visualization::RangeImageVisualizer range_image_widget("Range Image");
+//            range_image_widget.showRangeImage(range_image);
+//
+//            pcl_range->clear();
 
             flg_EKF_inited = (Measures.lidar_beg_time - first_lidar_time) < INIT_TIME ? \
                             false : true;
