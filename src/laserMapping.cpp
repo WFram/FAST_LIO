@@ -59,7 +59,7 @@
 #include <geometry_msgs/Vector3.h>
 #include <livox_ros_driver/CustomMsg.h>
 #include "preprocess.h"
-#include <ikd-Tree/ikd_Tree.h>
+#include <ikd-Tree/ikd-Tree/ikd_Tree.h>
 
 #define INIT_TIME           (0.1)
 #define LASER_POINT_COV     (0.001)
@@ -143,7 +143,7 @@ std::vector<nav_msgs::Odometry> vOdomAftMapped;
 shared_ptr<Preprocess> p_pre(new Preprocess());
 shared_ptr<ImuProcess> p_imu(new ImuProcess());
 
-void SaveTrajectory(const std::string& fileName) {
+void saveTrajectory(const std::string& fileName) {
     cout << endl << "Saving trajectory to " << fileName << endl;
 
     // TODO: Probably need sorting
@@ -1073,7 +1073,8 @@ int main(int argc, char** argv)
         fclose(fp2);
     }
 
-    SaveTrajectory("/home/wfram/catkin_ws_lvio_sber/src/FAST_LIO/FrameTrajectory.txt");
+    const std::string trajectory_filename = "fast_lio_trajectory.txt";
+    saveTrajectory(OUTPUT_DIR + trajectory_filename);
 
     return 0;
 }
